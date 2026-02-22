@@ -1,15 +1,32 @@
-# LAN Recon Tool 
+# LAN Recon Tool
 
-A lightweight, Python-based network discovery and vulnerability auditing tool. 
+A **Python-based tool** for network discovery and security auditing. It performs **Layer 2 reconnaissance** to map active devices on a local network and analyzes their hardware and services.
 
 ## Overview
-This tool performs Layer 2 (Data Link) network reconnaissance using the Address Resolution Protocol (ARP). It is designed to identify active devices on a local area network, resolve hardware MAC addresses to their respective vendors, and flag potential endpoint vulnerabilities.
+This script uses the **Address Resolution Protocol (ARP)** to identify active hosts in a CIDR range. It maps MAC addresses to vendors, scans for common open services using **multithreading**, and generates data reports for security analysis.
 
-## Features (In Development)
-- [ ] **ARP Network Sweep:** Fast, multithreaded discovery of all active IPs in a given CIDR range.
-- [ ] **MAC OUI Resolution:** Automatic identification of device manufacturers/vendors.
-- [ ] **Targeted Port Analysis:** Automated auditing of high-risk ports (e.g., Port 22/SSH) on discovered devices.
+## Features
+* **Network Discovery:** Uses Scapy to perform ARP sweeps across a subnet.
+* **Vendor Identification:** Resolves hardware manufacturers via MAC OUI lookups.
+* **Service Auditing:** Scans for high-risk ports (SSH, HTTP, SMB, etc.) using Python threads for speed.
+* **JSON Export:** Saves all scan metadata and timestamps to a structured JSON file.
+* **Data Visualization:** Uses Matplotlib to generate a bar chart (**network_stats.png**) showing device distribution by manufacturer.
 
-## Tech Stack
-* **Language:** Python 3.x
-* **Core Library:** Scapy (for raw packet crafting and network manipulation)
+## How to Use
+
+### 1. Install Dependencies
+Run this command in your terminal to install the required Python libraries:
+`pip install scapy matplotlib mac_vendor_lookup`
+
+### 2. Run the Scanner
+You must use **sudo** because the script needs root privileges to craft raw network packets. Use the **-t** flag to set your network range.
+
+**Example Command:**
+`sudo python3 scanner.py -t 192.168.1.0/24`
+
+*Note: Replace 192.168.1.0/24 with your actual network range (e.g., 10.0.0.0/24).*
+
+## Output
+1. **Terminal Table:** Shows a live summary of IPs, Vendors, and Ports.
+2. **JSON File:** `scan_results.json` is generated for data logging.
+3. **Analytics Chart:** `network_stats.png` is saved to visualize your network hardware.

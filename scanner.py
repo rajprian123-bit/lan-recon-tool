@@ -1,66 +1,83 @@
 #!/usr/bin/env python3
-
 import scapy.all as scapy
 import argparse
+import socket
+from threading import Thread
 from mac_vendor_lookup import MacLookup, VendorNotFoundError
 
-def scan_network(ip_range):
-    print(f"[*] Initializing Layer 2 ARP sweep for {ip_range}...")
-    
-    # Create the ARP Request & Ethernet Broadcast Frame
-    arp_request = scapy.ARP(pdst=ip_range)
-    broadcast_frame = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
-    arp_packet = broadcast_frame / arp_request
-    
-    # Send and receive packets
-    answered_list = scapy.srp(arp_packet, timeout=2, verbose=False)[0]
-    
-    # Initialize the Vendor Lookup Database
-    vendor_db = MacLookup()
-    # Note: On very first run, it might need to download the database. 
-    # If it fails, uncomment the next line once:
-    # vendor_db.update_vendors()
+# Targeted ports for service enumeration
+AUDIT_PORTS = [21, 22, 23, 80, 443, 8080, 8443]
 
-    active_devices = []
-    for element in answered_list:
-        ip = element[1].psrc
-        mac = element[1].hwsrc
+def check_service(ip, port, found_ports):
+    """Attempt TCP handshake to identify open services."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex((ip, port)) == 0:
+                found_ports.append(port)
+    except:
+        pass
+
+def run_recon(target_range):
+    print(f"[*] Starting discovery on: {target_range}")
+    
+    # Layer 2 Broadcast Discovery
+    req = scapy.ARP(pdst=target_range)
+    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
+    results_l2 = scapy.srp(broadcast/req, timeout=2, verbose=False)[0]
+    
+    mac_resolver = MacLookup()
+    inventory = []
+
+    for _, packet in results_l2:
+        host_ip = packet.psrc
+        host_mac = packet.hwsrc
         
-        # --- MODULE 2: VENDOR IDENTIFICATION ---
+        # OUI Resolution
         try:
-            vendor = vendor_db.lookup(mac)
-        except VendorNotFoundError:
-            # Catch devices using Private/Randomized MAC addresses
-            vendor = "Unknown (Randomized MAC)"
-        except Exception:
-            vendor = "Lookup Error"
+            vendor = mac_resolver.lookup(host_mac)
+        except (VendorNotFoundError, Exception):
+            vendor = "Unknown/Randomized"
             
-        device_info = {"ip": ip, "mac": mac, "vendor": vendor}
-        active_devices.append(device_info)
+        # Multi-threaded Service Enumeration
+        open_services = []
+        scan_threads = []
+        for port in AUDIT_PORTS:
+            worker = Thread(target=check_service, args=(host_ip, port, open_services))
+            scan_threads.append(worker)
+            worker.start()
         
-    return active_devices
+        for worker in scan_threads:
+            worker.join()
+            
+        inventory.append({
+            "ip": host_ip, 
+            "mac": host_mac, 
+            "vendor": vendor, 
+            "services": open_services
+        })
+        
+    return inventory
 
-def display_results(devices):
-    print("\n[+] Network Scan Results:")
-    print("-" * 80)
-    # Professional formatting: left-aligned padding for clean columns
-    print(f"{'IP Address':<18} | {'MAC Address':<20} | {'Manufacturer'}")
-    print("-" * 80)
+def format_output(host_list):
+    print("\n" + "="*85)
+    print(f"{'IP ADDRESS':<18} | {'MANUFACTURER':<25} | {'SERVICES'}")
+    print("="*85)
     
-    for device in devices:
-        print(f"{device['ip']:<18} | {device['mac']:<20} | {device['vendor']}")
-    print("-" * 80)
-    print(f"[*] Total devices found: {len(devices)}\n")
+    for host in host_list:
+        svc_str = ", ".join(map(str, host['services'])) if host['services'] else "-"
+        print(f"{host['ip']:<18} | {host['vendor']:<25} | {svc_str}")
+    print("="*85 + "\n")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="LAN Reconnaissance Tool")
-    parser.add_argument("-t", "--target", dest="target", help="Target IP range (e.g., 192.168.1.1/24)", required=True)
+    parser = argparse.ArgumentParser(description="Network Reconnaissance Utility")
+    parser.add_argument("-t", "--target", help="Target CIDR (e.g. 192.168.1.0/24)", required=True)
     args = parser.parse_args()
     
     try:
-        results = scan_network(args.target)
-        display_results(results)
+        data = run_recon(args.target)
+        format_output(data)
     except PermissionError:
-        print("[!] Error: Root/Sudo privileges required to craft raw packets.")
-    except Exception as e:
-        print(f"[!] An error occurred: {e}")
+        print("[!] Error: Root privileges required for raw packet injection.")
+    except KeyboardInterrupt:
+        print("\n[!] Scan aborted by user.")
